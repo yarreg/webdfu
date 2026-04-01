@@ -641,6 +641,9 @@ var device = null;
             if (!progressBar && done === 0) {
                 return;
             }
+            if (!progressBar && typeof total !== 'undefined' && done >= total) {
+                return;
+            }
             if (!progressBar) {
                 progressBar = document.createElement("progress");
                 logContext.appendChild(progressBar);
