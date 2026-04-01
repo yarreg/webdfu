@@ -635,8 +635,11 @@ var device = null;
     function logProgress(done, total) {
         if (logContext) {
             let progressBar;
-            if (logContext.lastChild.tagName.toLowerCase() == "progress") {
+            if (logContext.lastChild && logContext.lastChild.tagName.toLowerCase() == "progress") {
                 progressBar = logContext.lastChild;
+            }
+            if (!progressBar && done === 0) {
+                return;
             }
             if (!progressBar) {
                 progressBar = document.createElement("progress");
