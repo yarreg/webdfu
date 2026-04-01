@@ -61,7 +61,6 @@ For an example WebUSB-enabled USB DFU bootloader for the STM32F103 series, check
 * ST DfuSe upload
 
 ## Planned future features:
-* DfuSe file format support
 * DFU file suffix support
 * Better support for remembering previous DFU configurations and pairing the bootloader/runtime versions of the same device.
 
