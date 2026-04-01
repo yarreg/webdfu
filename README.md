@@ -9,7 +9,7 @@ The main practical goal of this fork is to make the `dfu-util` web demo usable w
 ### dfu-util
 A browser UI that re-implements core `dfu-util` flows:
 
-https://yarreg.github.io/webdfu/dfu-util/
+https://yarreg.github.io/webdfu-unknown/dfu-util/
 
 ### mbed-download
 A demo using WebUSB and the [mbed remote compilation API](https://developer.mbed.org/handbook/Compile-API) to build and flash boards in one step:
