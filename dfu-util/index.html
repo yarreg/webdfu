@@ -26,10 +26,67 @@
       }
       div.interface-override {
         margin-left: 1.5rem;
+        margin-top: 0.5rem;
+        padding: 0.75rem;
+        border: 1px solid #ddd;
+        border-radius: 0.5rem;
+        background: #fafafa;
       }
       div.interface-override input {
         width: 100%;
         max-width: 44rem;
+      }
+      div.override-mode-switch {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 0.75rem;
+      }
+      button.mode-toggle {
+        margin: 0;
+      }
+      button.mode-toggle.active {
+        font-weight: bold;
+      }
+      div.override-section[hidden] {
+        display: none;
+      }
+      div.descriptor-preview {
+        margin-top: 0.75rem;
+        padding: 0.5rem;
+        border-radius: 0.25rem;
+        background: #f0f0f0;
+        font-family: monospace;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      p.descriptor-status {
+        margin: 0.5rem 0 0 0;
+      }
+      p.descriptor-status.valid {
+        color: #0a6;
+      }
+      p.descriptor-status.invalid {
+        color: #b00;
+      }
+      table.override-wizard {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 0.5rem 0;
+      }
+      table.override-wizard th,
+      table.override-wizard td {
+        padding: 0.35rem;
+        text-align: left;
+      }
+      table.override-wizard input[type="text"],
+      table.override-wizard input[type="number"],
+      table.override-wizard select {
+        max-width: 100%;
+      }
+      div.override-actions {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
       }
       p.interface-help {
         margin: 0.25rem 0 0 1.5rem;

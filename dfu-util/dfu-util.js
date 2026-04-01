@@ -116,6 +116,264 @@ var device = null;
         }
     }
 
+    function parseMemoryDescriptorForWizard(desc) {
+        const nameEndIndex = desc.indexOf("/");
+        if (!desc.startsWith("@") || nameEndIndex == -1) {
+            throw `Not a DfuSe memory descriptor: "${desc}"`;
+        }
+
+        const name = desc.substring(1, nameEndIndex).trim();
+        const segmentString = desc.substring(nameEndIndex);
+        const rows = [];
+        const groupRegex = /\/\s*(0x[0-9a-fA-F]{1,8})\s*\/((?:\s*[0-9]+\s*\*\s*[0-9]+\s?[ BKM]\s*[abcdefg]\s*,?\s*)+)/g;
+        const rowRegex = /([0-9]+)\s*\*\s*([0-9]+)\s?([ BKM])\s*([abcdefg])\s*,?\s*/g;
+
+        let groupMatch;
+        while ((groupMatch = groupRegex.exec(segmentString)) !== null) {
+            let start = parseInt(groupMatch[1], 16);
+            let rowMatch;
+            while ((rowMatch = rowRegex.exec(groupMatch[2])) !== null) {
+                rows.push({
+                    start: start,
+                    count: parseInt(rowMatch[1], 10),
+                    size: parseInt(rowMatch[2], 10),
+                    unit: rowMatch[3].trim() || "B",
+                    access: rowMatch[4]
+                });
+
+                const unitMultiplier = {"B": 1, "K": 1024, "M": 1048576}[rowMatch[3].trim() || "B"];
+                start += parseInt(rowMatch[1], 10) * parseInt(rowMatch[2], 10) * unitMultiplier;
+            }
+        }
+
+        return {name, rows};
+    }
+
+    function accessLetterFromFlags(readable, erasable, writable) {
+        let properties = 0;
+        if (readable) {
+            properties |= 0x1;
+        }
+        if (erasable) {
+            properties |= 0x2;
+        }
+        if (writable) {
+            properties |= 0x4;
+        }
+        if (properties === 0) {
+            throw "Select at least one access flag";
+        }
+
+        return String.fromCharCode("a".charCodeAt(0) + properties - 1);
+    }
+
+    function wizardRowsToDescriptor(name, rows) {
+        const trimmedName = name.trim();
+        if (!trimmedName) {
+            throw "Descriptor name is required";
+        }
+        if (rows.length === 0) {
+            throw "Add at least one region";
+        }
+
+        const parts = [`@${trimmedName}`];
+        for (const row of rows) {
+            if (!/^0x[0-9a-fA-F]+$/.test(row.start)) {
+                throw `Invalid start address: ${row.start}`;
+            }
+            if (!Number.isInteger(row.count) || row.count <= 0) {
+                throw "Region count must be a positive integer";
+            }
+            if (!Number.isInteger(row.size) || row.size <= 0) {
+                throw "Region size must be a positive integer";
+            }
+
+            const access = accessLetterFromFlags(row.readable, row.erasable, row.writable);
+            parts.push(`/${row.start}/${row.count.toString().padStart(2, "0")}*${row.size.toString().padStart(3, "0")}${row.unit}${access}`);
+        }
+
+        return parts.join("");
+    }
+
+    function setDescriptorStatus(statusEl, message, valid) {
+        statusEl.textContent = message;
+        statusEl.className = `descriptor-status ${valid ? "valid" : "invalid"}`;
+    }
+
+    function collectWizardRows(tableBody) {
+        const rows = [];
+        for (const tr of tableBody.querySelectorAll("tr")) {
+            rows.push({
+                start: tr.querySelector(".wizard-start").value.trim(),
+                count: parseInt(tr.querySelector(".wizard-count").value, 10),
+                size: parseInt(tr.querySelector(".wizard-size").value, 10),
+                unit: tr.querySelector(".wizard-unit").value,
+                readable: tr.querySelector(".wizard-readable").checked,
+                erasable: tr.querySelector(".wizard-erasable").checked,
+                writable: tr.querySelector(".wizard-writable").checked
+            });
+        }
+        return rows;
+    }
+
+    function addWizardRow(tableBody, row = null) {
+        const tr = document.createElement("tr");
+        const access = row ? row.access : null;
+        const readable = access ? ["a", "c", "e", "g"].includes(access) : true;
+        const erasable = access ? ["b", "c", "f", "g"].includes(access) : true;
+        const writable = access ? ["d", "e", "f", "g"].includes(access) : true;
+
+        tr.innerHTML = `
+            <td><input class="wizard-start" type="text" value="${row ? `0x${row.start.toString(16)}` : "0x08000000"}" pattern="0x[A-Fa-f0-9]+" /></td>
+            <td><input class="wizard-count" type="number" min="1" value="${row ? row.count : 1}" /></td>
+            <td><input class="wizard-size" type="number" min="1" value="${row ? row.size : 16}" /></td>
+            <td>
+                <select class="wizard-unit">
+                    <option value="B"${row && row.unit === "B" ? " selected" : ""}>B</option>
+                    <option value="K"${(!row || row.unit === "K") ? " selected" : ""}>K</option>
+                    <option value="M"${row && row.unit === "M" ? " selected" : ""}>M</option>
+                </select>
+            </td>
+            <td><input class="wizard-readable" type="checkbox"${readable ? " checked" : ""} /></td>
+            <td><input class="wizard-erasable" type="checkbox"${erasable ? " checked" : ""} /></td>
+            <td><input class="wizard-writable" type="checkbox"${writable ? " checked" : ""} /></td>
+            <td><button type="button" class="wizard-remove">Remove</button></td>
+        `;
+        tableBody.appendChild(tr);
+        return tr;
+    }
+
+    function buildInterfaceOverrideControls(device_, settings, index) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "interface-override";
+
+        const name = settings.name || dfu.getSuggestedInterfaceName(device_, settings.interface, settings.alternate) || "Internal Flash";
+        let descriptorValue = getInterfaceDescriptorValue(device_, settings) || "";
+        let wizardSeed = null;
+        try {
+            if (descriptorValue) {
+                wizardSeed = parseMemoryDescriptorForWizard(descriptorValue);
+            }
+        } catch (error) {
+            wizardSeed = null;
+        }
+
+        wrapper.innerHTML = `
+            <div class="override-mode-switch">
+                <button type="button" class="mode-toggle" data-mode="wizard">Wizard</button>
+                <button type="button" class="mode-toggle active" data-mode="manual">Manual</button>
+            </div>
+            <div class="override-section" data-mode-section="wizard" hidden>
+                <label for="interfaceWizardName${index}">Descriptor name:</label>
+                <input type="text" id="interfaceWizardName${index}" value="${wizardSeed ? wizardSeed.name : name.replace(/^@/, "")}" />
+                <table class="override-wizard">
+                    <thead>
+                        <tr>
+                            <th>Start</th>
+                            <th>Count</th>
+                            <th>Size</th>
+                            <th>Unit</th>
+                            <th>Read</th>
+                            <th>Erase</th>
+                            <th>Write</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="interfaceWizardRows${index}"></tbody>
+                </table>
+                <div class="override-actions">
+                    <button type="button" id="interfaceAddRow${index}">Add region</button>
+                </div>
+                <div class="descriptor-preview" id="interfacePreview${index}"></div>
+                <p class="descriptor-status" id="interfaceStatus${index}"></p>
+            </div>
+            <div class="override-section" data-mode-section="manual">
+                <label for="interfaceName${index}">Memory descriptor override:</label>
+                <input type="text" name="interfaceName${index}" id="interfaceName${index}" placeholder="@Internal Flash /0x08000000/04*016Kg,01*064Kg,07*128Kg" value="${descriptorValue}" />
+                <p class="descriptor-status" id="interfaceManualStatus${index}"></p>
+            </div>
+        `;
+
+        const wizardSection = wrapper.querySelector('[data-mode-section="wizard"]');
+        const manualSection = wrapper.querySelector('[data-mode-section="manual"]');
+        const manualInput = wrapper.querySelector(`#interfaceName${index}`);
+        const preview = wrapper.querySelector(`#interfacePreview${index}`);
+        const status = wrapper.querySelector(`#interfaceStatus${index}`);
+        const manualStatus = wrapper.querySelector(`#interfaceManualStatus${index}`);
+        const wizardName = wrapper.querySelector(`#interfaceWizardName${index}`);
+        const rowsBody = wrapper.querySelector(`#interfaceWizardRows${index}`);
+
+        function validateManual() {
+            const value = manualInput.value.trim();
+            if (!value) {
+                setDescriptorStatus(manualStatus, "No override set. Browser-provided interface name will be used.", true);
+                return;
+            }
+            try {
+                dfuse.parseMemoryDescriptor(value);
+                setDescriptorStatus(manualStatus, "Descriptor valid.", true);
+            } catch (error) {
+                setDescriptorStatus(manualStatus, error.toString(), false);
+            }
+        }
+
+        function updateWizardPreview() {
+            try {
+                const descriptor = wizardRowsToDescriptor(wizardName.value, collectWizardRows(rowsBody));
+                preview.textContent = descriptor;
+                manualInput.value = descriptor;
+                setDescriptorStatus(status, "Descriptor valid.", true);
+            } catch (error) {
+                preview.textContent = "";
+                setDescriptorStatus(status, error.toString(), false);
+            }
+            validateManual();
+        }
+
+        const seedRows = wizardSeed && wizardSeed.rows.length > 0 ? wizardSeed.rows : [{
+            start: 0x08000000,
+            count: 4,
+            size: 16,
+            unit: "K",
+            access: "g"
+        }];
+        for (const row of seedRows) {
+            const tr = addWizardRow(rowsBody, row);
+            tr.addEventListener("input", updateWizardPreview);
+            tr.querySelector(".wizard-remove").addEventListener("click", () => {
+                tr.remove();
+                updateWizardPreview();
+            });
+        }
+
+        wrapper.querySelector(`#interfaceAddRow${index}`).addEventListener("click", () => {
+            const tr = addWizardRow(rowsBody);
+            tr.addEventListener("input", updateWizardPreview);
+            tr.querySelector(".wizard-remove").addEventListener("click", () => {
+                tr.remove();
+                updateWizardPreview();
+            });
+            updateWizardPreview();
+        });
+
+        for (const button of wrapper.querySelectorAll(".mode-toggle")) {
+            button.addEventListener("click", () => {
+                for (const candidate of wrapper.querySelectorAll(".mode-toggle")) {
+                    candidate.classList.toggle("active", candidate === button);
+                }
+                const wizardMode = button.dataset.mode === "wizard";
+                wizardSection.hidden = !wizardMode;
+                manualSection.hidden = wizardMode;
+            });
+        }
+
+        wizardName.addEventListener("input", updateWizardPreview);
+        manualInput.addEventListener("input", validateManual);
+
+        updateWizardPreview();
+        return wrapper;
+    }
+
     async function fixInterfaceNames(device_, interfaces) {
         // Check if any interface names were not read correctly
         if (interfaces.some(intf => dfu.isMissingInterfaceName(intf.name))) {
@@ -163,24 +421,7 @@ var device = null;
             div.appendChild(radio);
             div.appendChild(label);
 
-            let overrideDiv = document.createElement("div");
-            overrideDiv.className = "interface-override";
-
-            let overrideLabel = document.createElement("label");
-            overrideLabel.textContent = "Memory descriptor override:";
-            overrideLabel.setAttribute("for", "interfaceName" + i);
-
-            let overrideInput = document.createElement("input");
-            overrideInput.type = "text";
-            overrideInput.name = "interfaceName" + i;
-            overrideInput.id = "interfaceName" + i;
-            overrideInput.placeholder = "@Internal Flash /0x08000000/04*016Kg,01*064Kg,07*128Kg";
-            const descriptorValue = getInterfaceDescriptorValue(device_, interfaces[i]);
-            overrideInput.value = descriptorValue || "";
-
-            overrideDiv.appendChild(overrideLabel);
-            overrideDiv.appendChild(overrideInput);
-            div.appendChild(overrideDiv);
+            div.appendChild(buildInterfaceOverrideControls(device_, interfaces[i], i));
 
             if (dfu.isMissingInterfaceName(interfaces[i].name)) {
                 let help = document.createElement("p");
