@@ -33,6 +33,89 @@ var device = null;
         }
     }
 
+    function readFixedAscii(view, offset, length) {
+        let result = "";
+        for (let i = 0; i < length; i++) {
+            const value = view.getUint8(offset + i);
+            if (value === 0) {
+                break;
+            }
+            result += String.fromCharCode(value);
+        }
+        return result;
+    }
+
+    function parseDfuSeFile(data) {
+        const view = new DataView(data);
+        if (view.byteLength < 11 || readFixedAscii(view, 0, 5) !== "DfuSe") {
+            return null;
+        }
+
+        const version = view.getUint8(5);
+        const totalSize = view.getUint32(6, true);
+        const targetCount = view.getUint8(10);
+        if (version !== 0x01) {
+            throw `Unsupported DfuSe version: ${version}`;
+        }
+        if (totalSize > view.byteLength) {
+            throw `Invalid DfuSe size ${totalSize}, file is only ${view.byteLength} bytes`;
+        }
+
+        let offset = 11;
+        const targets = [];
+        for (let i = 0; i < targetCount; i++) {
+            if (offset + 274 > totalSize) {
+                throw "Truncated DfuSe target prefix";
+            }
+
+            const signature = readFixedAscii(view, offset, 6);
+            if (signature !== "Target") {
+                throw `Invalid DfuSe target signature at offset ${offset}: "${signature}"`;
+            }
+
+            const alternateSetting = view.getUint8(offset + 6);
+            const named = view.getUint32(offset + 7, true);
+            const name = readFixedAscii(view, offset + 11, 255);
+            const targetSize = view.getUint32(offset + 266, true);
+            const elementCount = view.getUint32(offset + 270, true);
+            offset += 274;
+
+            const targetStart = offset;
+            const elements = [];
+            for (let j = 0; j < elementCount; j++) {
+                if (offset + 8 > totalSize) {
+                    throw "Truncated DfuSe element header";
+                }
+
+                const address = view.getUint32(offset, true);
+                const size = view.getUint32(offset + 4, true);
+                offset += 8;
+                if (offset + size > totalSize) {
+                    throw `Truncated DfuSe element data at 0x${address.toString(16)}`;
+                }
+
+                elements.push({
+                    address,
+                    data: data.slice(offset, offset + size),
+                });
+                offset += size;
+            }
+
+            if (offset - targetStart !== targetSize) {
+                throw `DfuSe target size mismatch for alt=${alternateSetting}`;
+            }
+
+            targets.push({
+                alternateSetting,
+                named,
+                name,
+                elements,
+            });
+        }
+
+        return {version, totalSize, targets};
+    }
+
     function formatDFUSummary(device) {
         const vid = hex4(device.device_.vendorId);
         const pid = hex4(device.device_.productId);
@@ -114,6 +197,39 @@ var device = null;
             interfaces[i].name = value || null;
             saveInterfaceOverride(device_, interfaces[i], value);
         }
+    }
+
+    function getDownloadPlan(fileData, currentDevice) {
+        const parsedDfu = parseDfuSeFile(fileData);
+        if (!parsedDfu) {
+            return {
+                kind: "raw",
+                data: fileData,
+            };
+        }
+
+        const selectedAlt = currentDevice.settings.alternate.alternateSetting;
+        let matchingTargets = parsedDfu.targets.filter(target => target.alternateSetting === selectedAlt);
+        if (matchingTargets.length === 0) {
+            matchingTargets = parsedDfu.targets;
+        }
+
+        const elements = [];
+        for (const target of matchingTargets) {
+            for (const element of target.elements) {
+                elements.push(element);
+            }
+        }
+
+        if (elements.length === 0) {
+            throw "Selected DfuSe file does not contain any downloadable elements";
+        }
+
+        return {
+            kind: "dfuse",
+            targets: matchingTargets,
+            elements,
+        };
     }
 
     function parseMemoryDescriptorForWizard(desc) {
@@ -952,7 +1068,26 @@ var device = null;
                 } catch (error) {
                     device.logWarning("Failed to clear status");
                 }
-                await device.do_download(transferSize, firmwareFile, manifestationTolerant).then(
+
+                let downloadPromise;
+                try {
+                    const plan = getDownloadPlan(firmwareFile, device);
+                    if (plan.kind === "dfuse") {
+                        logInfo(`Detected DfuSe file with ${plan.elements.length} element(s). Memory descriptor is still used for address validation and sector erase.`);
+                        for (const element of plan.elements) {
+                            logInfo(`Queued element ${hexAddr8(element.address)} (${niceSize(element.data.byteLength)})`);
+                        }
+                        downloadPromise = device.do_download_elements(transferSize, plan.elements, manifestationTolerant);
+                    } else {
+                        downloadPromise = device.do_download(transferSize, firmwareFile, manifestationTolerant);
+                    }
+                } catch (error) {
+                    logError(error);
+                    setLogContext(null);
+                    return false;
+                }
+
+                await downloadPromise.then(
                     () => {
                         logInfo("Done!");
                         setLogContext(null);

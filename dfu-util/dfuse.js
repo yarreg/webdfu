@@ -276,7 +276,80 @@ var dfuse = {};
         } catch (error) {
             this.logError(error);
         }
-    }
+    };
+
+    dfuse.Device.prototype.do_download_elements = async function(xfer_size, elements, manifestationTolerant) {
+        if (!this.memoryInfo || !this.memoryInfo.segments) {
+            throw "No memory map available";
+        }
+        if (!elements || elements.length === 0) {
+            throw "No DfuSe elements to download";
+        }
+
+        let totalBytes = 0;
+        for (const element of elements) {
+            totalBytes += element.data.byteLength;
+        }
+
+        let bytesWrittenTotal = 0;
+        for (const element of elements) {
+            const startAddress = element.address;
+            const endAddress = startAddress + element.data.byteLength - 1;
+
+            if (this.getSegment(startAddress) === null || this.getSegment(endAddress) === null) {
+                throw `DfuSe element 0x${startAddress.toString(16)}..0x${endAddress.toString(16)} outside of memory map`;
+            }
+
+            this.logInfo(`Erasing element at 0x${startAddress.toString(16)} (${element.data.byteLength} bytes)`);
+            await this.erase(startAddress, element.data.byteLength);
+
+            this.logInfo(`Writing element at 0x${startAddress.toString(16)}`);
+
+            let bytesSent = 0;
+            let address = startAddress;
+            while (bytesSent < element.data.byteLength) {
+                const bytesLeft = element.data.byteLength - bytesSent;
+                const chunkSize = Math.min(bytesLeft, xfer_size);
+
+                let bytesWritten = 0;
+                let dfuStatus;
+                try {
+                    await this.dfuseCommand(dfuse.SET_ADDRESS, address, 4);
+                    this.logDebug(`Set address to 0x${address.toString(16)}`);
+                    bytesWritten = await this.download(element.data.slice(bytesSent, bytesSent + chunkSize), 2);
+                    dfuStatus = await this.poll_until_idle(dfu.dfuDNLOAD_IDLE);
+                    address += chunkSize;
+                } catch (error) {
+                    throw "Error during DfuSe download: " + error;
+                }
+
+                if (dfuStatus.status != dfu.STATUS_OK) {
+                    throw `DFU DOWNLOAD failed state=${dfuStatus.state}, status=${dfuStatus.status}`;
+                }
+
+                bytesSent += bytesWritten;
+                this.logProgress(bytesWrittenTotal + bytesSent, totalBytes);
+            }
+
+            bytesWrittenTotal += bytesSent;
+            this.logInfo(`Wrote ${bytesSent} bytes to 0x${startAddress.toString(16)}`);
+        }
+
+        const manifestAddress = elements[0].address;
+        this.logInfo("Manifesting new firmware");
+        try {
+            await this.dfuseCommand(dfuse.SET_ADDRESS, manifestAddress, 4);
+            await this.download(new ArrayBuffer(), 0);
+        } catch (error) {
+            throw "Error during DfuSe manifestation: " + error;
+        }
+
+        try {
+            await this.poll_until(state => (state == dfu.dfuMANIFEST));
+        } catch (error) {
+            this.logError(error);
+        }
+    };
 
     dfuse.Device.prototype.do_upload = async function(xfer_size, max_size) {
         let startAddress = this.startAddress;
