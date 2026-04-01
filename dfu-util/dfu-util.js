@@ -69,9 +69,56 @@ var device = null;
         return `${mode}: cfg=${cfg}, intf=${intf}, alt=${alt}, name="${name}"`;
     }
 
+    function getInterfaceOverrideKey(device_, settings) {
+        const vid = hex4(device_.vendorId);
+        const pid = hex4(device_.productId);
+        const serial = device_.serialNumber || "";
+        const cfg = settings.configuration.configurationValue;
+        const intf = settings["interface"].interfaceNumber;
+        const alt = settings.alternate.alternateSetting;
+        return `dfu-override:${vid}:${pid}:${serial}:${cfg}:${intf}:${alt}`;
+    }
+
+    function loadInterfaceOverride(device_, settings) {
+        return localStorage.getItem(getInterfaceOverrideKey(device_, settings));
+    }
+
+    function saveInterfaceOverride(device_, settings, value) {
+        const key = getInterfaceOverrideKey(device_, settings);
+        if (value) {
+            localStorage.setItem(key, value);
+        } else {
+            localStorage.removeItem(key);
+        }
+    }
+
+    function getInterfaceDescriptorValue(device_, settings) {
+        const override = loadInterfaceOverride(device_, settings);
+        if (override) {
+            return override;
+        }
+        if (!dfu.isMissingInterfaceName(settings.name)) {
+            return settings.name;
+        }
+        return dfu.getSuggestedInterfaceName(device_, settings.interface, settings.alternate);
+    }
+
+    function applyInterfaceOverrides(device_, interfaces, form) {
+        for (let i = 0; i < interfaces.length; i++) {
+            const field = form.elements[`interfaceName${i}`];
+            if (!field) {
+                continue;
+            }
+
+            const value = field.value.trim();
+            interfaces[i].name = value || null;
+            saveInterfaceOverride(device_, interfaces[i], value);
+        }
+    }
+
     async function fixInterfaceNames(device_, interfaces) {
         // Check if any interface names were not read correctly
-        if (interfaces.some(intf => (intf.name == null))) {
+        if (interfaces.some(intf => dfu.isMissingInterfaceName(intf.name))) {
             // Manually retrieve the interface name string descriptors
             let tempDevice = new dfu.Device(device_, interfaces[0]);
             await tempDevice.device_.open();
@@ -80,7 +127,7 @@ var device = null;
             await tempDevice.close();
 
             for (let intf of interfaces) {
-                if (intf.name === null) {
+                if (dfu.isMissingInterfaceName(intf.name)) {
                     let configIndex = intf.configuration.configurationValue;
                     let intfNumber = intf["interface"].interfaceNumber;
                     let alt = intf.alternate.alternateSetting;
@@ -112,8 +159,36 @@ var device = null;
             label.setAttribute("for", "interface" + i);
 
             let div = document.createElement("div");
+            div.className = "interface-choice";
             div.appendChild(radio);
             div.appendChild(label);
+
+            let overrideDiv = document.createElement("div");
+            overrideDiv.className = "interface-override";
+
+            let overrideLabel = document.createElement("label");
+            overrideLabel.textContent = "Memory descriptor override:";
+            overrideLabel.setAttribute("for", "interfaceName" + i);
+
+            let overrideInput = document.createElement("input");
+            overrideInput.type = "text";
+            overrideInput.name = "interfaceName" + i;
+            overrideInput.id = "interfaceName" + i;
+            overrideInput.placeholder = "@Internal Flash /0x08000000/04*016Kg,01*064Kg,07*128Kg";
+            const descriptorValue = getInterfaceDescriptorValue(device_, interfaces[i]);
+            overrideInput.value = descriptorValue || "";
+
+            overrideDiv.appendChild(overrideLabel);
+            overrideDiv.appendChild(overrideInput);
+            div.appendChild(overrideDiv);
+
+            if (dfu.isMissingInterfaceName(interfaces[i].name)) {
+                let help = document.createElement("p");
+                help.className = "interface-help";
+                help.textContent = "Browser did not provide this interface name. Enter or confirm the descriptor before connecting.";
+                div.appendChild(help);
+            }
+
             form.insertBefore(div, button);
         }
     }
@@ -506,7 +581,7 @@ var device = null;
                         if (interfaces.length == 0) {
                             console.log(selectedDevice);
                             statusDisplay.textContent = "The selected device does not have any USB DFU interfaces.";
-                        } else if (interfaces.length == 1) {
+                        } else if (interfaces.length == 1 && !dfu.isMissingInterfaceName(interfaces[0].name)) {
                             await fixInterfaceNames(selectedDevice, interfaces);
                             device = await connect(new dfu.Device(selectedDevice, interfaces[0]));
                         } else {
@@ -514,6 +589,7 @@ var device = null;
                             populateInterfaceList(interfaceForm, selectedDevice, interfaces);
                             async function connectToSelectedInterface() {
                                 interfaceForm.removeEventListener('submit', this);
+                                applyInterfaceOverrides(selectedDevice, interfaces, interfaceForm);
                                 const index = interfaceForm.elements["interfaceIndex"].value;
                                 device = await connect(new dfu.Device(selectedDevice, interfaces[index]));
                             }

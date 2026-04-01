@@ -15,8 +15,26 @@
         color: red;
         font-weight: bold;
       }
+      p.info {
+        color: #444;
+      }
       label.radio {
         display: inline;
+      }
+      div.interface-choice {
+        margin: 0.5rem 0 1rem 0;
+      }
+      div.interface-override {
+        margin-left: 1.5rem;
+      }
+      div.interface-override input {
+        width: 100%;
+        max-width: 44rem;
+      }
+      p.interface-help {
+        margin: 0.25rem 0 0 1.5rem;
+        font-size: 0.9rem;
+        color: #555;
       }
       input:invalid {
         color:red;
@@ -43,6 +61,7 @@
     <dialog id="interfaceDialog">
       Your device has multiple DFU interfaces. Select one from the list below:
       <form id="interfaceForm" method="dialog">
+        <p>For interfaces with missing or incorrect names, you can override the DfuSe memory descriptor before connecting.</p>
         <button id="selectInterface" type="submit">Select interface</button>
       </form>
     </dialog>

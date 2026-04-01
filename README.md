@@ -23,6 +23,24 @@ On Windows, that means that an appropriate WinUSB/libusb driver must first be in
 
 The javascript DFU driver is ported from the excellent open-source software, [dfu-util](http://dfu-util.sourceforge.net/).
 
+## Fork-specific behavior
+This fork adds a manual DfuSe memory descriptor override UI in the `dfu-util` demo.
+
+Why this is needed:
+* Some devices expose multiple DFU alternate interfaces, but Chromium/WebUSB may fail to return a usable `interfaceName` string descriptor for one or more alternates.
+* When this happens, the upstream UI shows the interface as `UNKNOWN`.
+* For ST DfuSe devices, missing interface names are a practical problem because the memory map is encoded in that string, for example:
+  * `@Internal Flash /0x08000000/04*016Kg,01*064Kg,07*128Kg`
+* Without a valid memory descriptor, DfuSe download/upload flows fail with errors such as `No memory map available`.
+
+What this fork changes:
+* The interface selection dialog now shows a `Memory descriptor override` field for each `cfg/intf/alt`.
+* The override is applied before connecting to the selected DFU interface.
+* The value is persisted in `localStorage`, keyed by device VID/PID/serial and interface tuple.
+* For known STM32 ROM DFU devices, the UI may prefill a suggested descriptor value, but the user still sees and controls the final override.
+
+This makes the browser UI usable with devices that work correctly with `dfu-util`, but whose DfuSe interface name is not exposed reliably through WebUSB.
+
 ## Device-side implementation
 The current WebUSB draft no longer requires the device to support additional WebUSB descriptors.
 However, implementing WebUSB descriptors allows the device to specify a landing page URL for the browser to present to the user when the device is plugged in.

@@ -31,6 +31,29 @@ var dfu = {};
         this.intfNumber = settings["interface"].interfaceNumber;
     };
 
+    dfu.isMissingInterfaceName = function(name) {
+        return !name || name === "UNKNOWN";
+    };
+
+    dfu.getSuggestedInterfaceName = function(device, intf, alt) {
+        if (device.vendorId === 0x0483 && device.productId === 0xdf11 && alt.interfaceProtocol === 0x02) {
+            switch (alt.alternateSetting) {
+                case 0:
+                    return "@Internal Flash /0x08000000/04*016Kg,01*064Kg,07*128Kg";
+                case 1:
+                    return "@Option Bytes /0x1FFFC000/01*016 e/0x1FFEC000/01*016 e";
+                case 2:
+                    return "@OTP Memory /0x1FFF7800/01*512 e,01*016 e";
+                case 3:
+                    return "@Device Feature/0xFFFF0000/01*004 e";
+                default:
+                    break;
+            }
+        }
+
+        return null;
+    };
+
     dfu.findDeviceDfuInterfaces = function(device) {
         let interfaces = [];
         for (let conf of device.configurations) {
