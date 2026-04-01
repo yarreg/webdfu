@@ -5,6 +5,8 @@ This fork is used to flash STM32 bootloaders from the browser when standard desk
 
 The main practical goal of this fork is to make the `dfu-util` web demo usable with STM32 DfuSe devices even when Chromium/WebUSB reports a DFU alternate interface as `UNKNOWN` instead of returning the memory descriptor string.
 
+This fork also adds DfuSe `.dfu` file download support, so multi-element STM32 firmware images can be written by address from a single container file instead of requiring separate raw `.bin` uploads.
+
 ## Demos
 ### dfu-util
 A browser UI that re-implements core `dfu-util` flows:

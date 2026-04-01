@@ -286,12 +286,6 @@ var dfuse = {};
             throw "No DfuSe elements to download";
         }
 
-        let totalBytes = 0;
-        for (const element of elements) {
-            totalBytes += element.data.byteLength;
-        }
-
-        let bytesWrittenTotal = 0;
         for (const element of elements) {
             const startAddress = element.address;
             const endAddress = startAddress + element.data.byteLength - 1;
@@ -328,10 +322,9 @@ var dfuse = {};
                 }
 
                 bytesSent += bytesWritten;
-                this.logProgress(bytesWrittenTotal + bytesSent, totalBytes);
+                this.logProgress(bytesSent, element.data.byteLength);
             }
 
-            bytesWrittenTotal += bytesSent;
             this.logInfo(`Wrote ${bytesSent} bytes to 0x${startAddress.toString(16)}`);
         }
 
