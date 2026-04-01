@@ -289,6 +289,7 @@ var dfuse = {};
         for (const element of elements) {
             const startAddress = element.address;
             const endAddress = startAddress + element.data.byteLength - 1;
+            const showElementProgress = element.data.byteLength > xfer_size;
 
             if (this.getSegment(startAddress) === null || this.getSegment(endAddress) === null) {
                 throw `DfuSe element 0x${startAddress.toString(16)}..0x${endAddress.toString(16)} outside of memory map`;
@@ -322,7 +323,9 @@ var dfuse = {};
                 }
 
                 bytesSent += bytesWritten;
-                this.logProgress(bytesSent, element.data.byteLength);
+                if (showElementProgress) {
+                    this.logProgress(bytesSent, element.data.byteLength);
+                }
             }
 
             this.logInfo(`Wrote ${bytesSent} bytes to 0x${startAddress.toString(16)}`);
