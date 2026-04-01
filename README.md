@@ -1,9 +1,13 @@
 # webdfu
-This is a proof-of-concept demo of host [USB DFU](http://wiki.openmoko.org/wiki/USB_DFU) drivers in Javascript utilizing the [WebUSB](https://wicg.github.io/webusb/) draft standard to implement USB firmware updates from the browser.
+Browser-based USB DFU flashing over [WebUSB](https://wicg.github.io/webusb/).
+
+This fork is used to flash STM32 bootloaders from the browser when standard desktop tools are inconvenient, but the device is available in USB DFU mode.
+
+The main practical goal of this fork is to make the `dfu-util` web demo usable with STM32 DfuSe devices even when Chromium/WebUSB reports a DFU alternate interface as `UNKNOWN` instead of returning the memory descriptor string.
 
 ## Demos
 ### dfu-util
-A demo re-implementing dfu-util functionality in the browser:
+A browser UI that re-implements core `dfu-util` flows:
 
 https://devanlai.github.io/webdfu/dfu-util/
 
@@ -24,7 +28,7 @@ On Windows, that means that an appropriate WinUSB/libusb driver must first be in
 The javascript DFU driver is ported from the excellent open-source software, [dfu-util](http://dfu-util.sourceforge.net/).
 
 ## Fork-specific behavior
-This fork adds a manual DfuSe memory descriptor override UI in the `dfu-util` demo.
+This fork adds DfuSe memory descriptor override tools to the `dfu-util` demo.
 
 Why this is needed:
 * Some devices expose multiple DFU alternate interfaces, but Chromium/WebUSB may fail to return a usable `interfaceName` string descriptor for one or more alternates.
@@ -34,7 +38,9 @@ Why this is needed:
 * Without a valid memory descriptor, DfuSe download/upload flows fail with errors such as `No memory map available`.
 
 What this fork changes:
-* The interface selection dialog now shows a `Memory descriptor override` field for each `cfg/intf/alt`.
+* The interface selection dialog now includes `Manual` and `Wizard` tabs for each `cfg/intf/alt`.
+* `Manual` mode lets the user enter the raw DfuSe memory descriptor directly.
+* `Wizard` mode builds the descriptor from regions and shows a live preview of the final string.
 * The override is applied before connecting to the selected DFU interface.
 * The value is persisted in `localStorage`, keyed by device VID/PID/serial and interface tuple.
 * For known STM32 ROM DFU devices, the UI may prefill a suggested descriptor value, but the user still sees and controls the final override.
