@@ -96,7 +96,8 @@ var dfuse = {};
 
         let status = await this.poll_until(state => (state != dfu.dfuDNBUSY));
         if (status.status != dfu.STATUS_OK) {
-            throw "Special DfuSe command " + commandName + " failed";
+            const commandName = commandNames[command] || `0x${command.toString(16)}`;
+            throw `Special DfuSe command ${commandName} failed with state=${status.state}, status=${status.status}`;
         }
     };
 
